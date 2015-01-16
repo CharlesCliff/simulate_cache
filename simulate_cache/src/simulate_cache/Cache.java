@@ -154,18 +154,44 @@ public class Cache {
 		return 0;
 	}
 	
-	/*
+	/*write cache
 	 * 
 	 */
 	public Boolean write_cache( int value,short type){
 		Boolean flag = false;
+		//hit
 		for(int i = 0;i<CACHE_INTERN;i++){
 			if (valid[index][i]==true && tag[index][i]==tags){
 				System.out.println("write hit");
-				flag=true;
-				break;
+				lru[index][i]++;
+				if(type==TYPE_8){
+					block[index][i][wordoffset*4+byteoffset]=(byte)(value&0xff);
+					return true;
+				}
+				else if(type==TYPE_16){
+					int j = 0 ;
+					for (j=1;j>=0;j--){
+						byte tmp = (byte)(value&0xff);
+						block[index][i][wordoffset*4+byteoffset+j] = tmp;
+						value = value>>8;
+					}
+					return true;
+				}
+				else if(type==TYPE_32){
+					int j = 0 ;
+					for (j=3;j>=0;j--){
+						byte tmp = (byte)(value&0xff);
+						block[index][i][wordoffset*4+byteoffset+j] = tmp;
+						value = value>>8;
+					}
+					return true;
+				}
+				
 			}
 		}
+		
+		///miss
+		
 		
 		return false;
 	}
@@ -177,7 +203,7 @@ public class Cache {
 		
 	}
 	/*
-	 * 
+	 * Address Resolve
 	 */
 	public void addressResolve(int addr){
 		if (addr<0){
