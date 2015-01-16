@@ -59,7 +59,13 @@ public class Cache {
 	 * read
 	 */
 	public int read_cache(){
-		
+		for(int i = 0;i<CACHE_INTERN;i++){
+			if (valid[index][i]==true && tag[index][i]==tags){
+				System.out.println("hit");
+				return 1;
+			}
+		}
+		System.out.println("miss");
 		return 0;
 	}
 	
