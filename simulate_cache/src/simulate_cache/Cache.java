@@ -10,7 +10,7 @@ public class Cache {
 	public static final short TYPE_8 = 8;
 	public static final short TYPE_16 = 16;
 	public static final short TYPE_32 = 32;
-	public static final short MEM_SIZE = 1024;
+	public static final short MEM_SIZE = 10240;
 	/*
 	 * private variables definition
 	 */
@@ -23,6 +23,7 @@ public class Cache {
 	private byte[][] lru;
 	private byte[][] mem;
 	private int addr;
+	private byte[] tlru;
 	/*
 	 * initial the cache
 	 */
@@ -31,7 +32,10 @@ public class Cache {
 		tag = new Integer[CACHE_INDEX][CACHE_INTERN];
 		block = new byte[CACHE_INDEX][CACHE_INTERN][BLOCK_SIZE];
 		mem = new byte[MEM_SIZE][BLOCK_SIZE];
+		tlru = new byte[CACHE_INDEX];
+		lru = new byte[CACHE_INDEX][CACHE_INTERN];
 		for(int i = 0 ; i < CACHE_INDEX;i++){
+			tlru[i]=0;
 			for (int j = 0 ; j < CACHE_INTERN;j++){
 			valid[i][j]=false;
 			tag[i][j]=0;
@@ -44,27 +48,60 @@ public class Cache {
 		// mem initialize
 		for (int i = 0 ; i < MEM_SIZE;i++){
 			for (int j = 0 ;j < BLOCK_SIZE;j++){
-				mem[i][j]=(byte)(i+j);
+				mem[i][j]=(byte)(j);
 			}
 		}
 	}
 	/*
-	 * 
+	 *  mem load and write from cache
 	 */
-	public byte[] loadMem(int addr){
+	public byte[] loadMem(int taddr){
 		//地址簿超过内存的大小
-		addr = addr&(MEM_SIZE*BLOCK_SIZE*8);
-		int memindex=addr>>8;
-			byte result[] = new byte[BLOCK_SIZE];
-			for(int i = 0 ; i < BLOCK_SIZE ; i ++){
-				result[i]=mem[memindex][i];
-			}
-			return result;
+		
+		//taddr = taddr&(MEM_SIZE*BLOCK_SIZE*8);
+		int memindex=taddr>>5;
+		byte result[] = new byte[BLOCK_SIZE];
+		for(int i = 0 ; i < BLOCK_SIZE ; i ++){
+			result[i]=mem[memindex][i];
+		}
+		return result;
+	}
+	public Boolean writeMem(int taddr,byte[] cblock){
+		//taddr = taddr&(MEM_SIZE*BLOCK_SIZE*8);
+		
+		
+		int memindex=taddr>>5;
+		System.out.println("write mem : "+memindex);
+		System.out.println("CBLOCK : "+ index );
+		for (int i = 0 ; i< BLOCK_SIZE ; i ++){
+			
+			System.out.println(cblock[i]+" ");
+			mem[memindex][i] = cblock[i];
+		}
+		//mem[memindex]=cblock;
+		return true;
+	}
+	public void printMem(int mindex){
+		if (mindex > MEM_SIZE*BLOCK_SIZE){
+			System.out.println("index is too big for memory");
+			return;
+		}
+		System.out.println("Mem Status for Block: "+mindex);
+		for (int i = 0 ;i < BLOCK_SIZE ; i ++){
+			System.out.print(mem[mindex][i]+" ");
+		}
+		System.out.println("end fof mem status-------------------------------------+++=======");
+		return;
 	}
 	/*
 	 * invalid entire cache
 	 * 
 	 */
+	public int getBlockAddr(short cindex,int ctag){
+		int taddr = (ctag<<12)+(((int)cindex)<<5);
+		System.out.println("taddress is : "+taddr);
+		return taddr;
+	}
 	public Boolean Invalid_Entire_Cache(){
 		for(int i=0;i<CACHE_INDEX;i++){
 			for (int j = 0; j <CACHE_INTERN;j++)
@@ -76,15 +113,18 @@ public class Cache {
 	 * Linefill
 	 * @param:
 	 */
-	public void lineFill(short index, short intern){
+	public void lineFill(short cindex, short cintern,int taddr,int ctag){
 		//@TODO
-		block[index][intern] = loadMem(addr);
+		block[cindex][cintern] = loadMem(taddr);
+		//标记
+		valid[cindex][cintern] = true;
+		tag[cindex][cintern] = ctag;
 		return;
 	}
 	/*
 	 * read
 	 */
-	public int read_cache(short type){
+	public int readCache(short type){
 		int rtvalue = 0;
 		Boolean flag = false;
 		int vaccum = 0;
@@ -94,24 +134,29 @@ public class Cache {
 			 */
 			if (valid[index][i]==true && tag[index][i]==tags){
 				lru[index][i]+=1;
-				System.out.println("hit");
+				tlru[index]=(byte)i;
+				System.out.println(" read hit at : "+index );
 				if(type==TYPE_8){
 					rtvalue = block[index][i][wordoffset*4+byteoffset];
 					return (int)(rtvalue);
 				}
 				else if(type==TYPE_16){
 					int j = 0 ;
-					for (j=0;j<2;j++){
-						short tmp= block[index][i][wordoffset*4+byteoffset+j];
-						rtvalue+=(rtvalue<<8)+tmp;
+					rtvalue = 0;
+					for (j=1;j>=0;j--){
+						short tmp = 0;
+						tmp= block[index][i][wordoffset*4+byteoffset+j];
+						rtvalue=(rtvalue<<8)+(int)tmp;
 					}
 					return rtvalue;
 				}
 				else if(type==TYPE_32){
 					int j = 0 ;
-					for (j=0;j<4;j++){
-						short tmp= block[index][i][wordoffset*4+byteoffset+j];
-						rtvalue+=(rtvalue<<8)+tmp;
+					rtvalue = 0;
+					for (j=3;j>=0;j--){
+						short tmp = 0;
+						tmp= block[index][i][wordoffset*4+byteoffset+j];
+						rtvalue=(rtvalue<<8)+(int)tmp;
 					}
 					return rtvalue;
 				}
@@ -132,21 +177,33 @@ public class Cache {
 		 * miss
 		 * LRU 
 		 */
+		System.out.println("read miss at: "+index);
 		if(flag){// do not need to lru
-			lineFill((short)index,(short)vaccum);
+			lineFill((short)index,(short)vaccum,addr,tags);
 			valid[index][vaccum]=true;
 			tag[index][vaccum] = tags;
 		}
 		else{// LRU needed
+			System.out.println("read LRU");
 			int max_time = 1024;
 			int choice = -1;
 			for(int i = 0 ; i < CACHE_INTERN ; i ++ ){
 				if(lru[index][i]<max_time){
 					choice = i;
 				}
+				
+				
 			}
+			/*
+			 * tmp lru for 2 
+			 */
+			if (tlru[index]==0) {choice=1;}
+			else choice=0;
 			if (choice>=0){
-				lineFill(index,(short)choice);
+				//先写入mem
+				int taddr=getBlockAddr(index,tag[index][(short)choice]);
+				writeMem(taddr,block[index][(short)choice]);
+				lineFill(index,(short)choice,taddr,tags);
 				tag[index][choice] = tags;
 			}
 		}
@@ -157,66 +214,149 @@ public class Cache {
 	/*write cache
 	 * 
 	 */
-	public Boolean write_cache( int value,short type){
+	public Boolean writeCache( int value,short type){
 		Boolean flag = false;
 		//hit
+		int vaccum=-1;
 		for(int i = 0;i<CACHE_INTERN;i++){
 			if (valid[index][i]==true && tag[index][i]==tags){
-				System.out.println("write hit");
-				lru[index][i]++;
-				if(type==TYPE_8){
-					block[index][i][wordoffset*4+byteoffset]=(byte)(value&0xff);
+				System.out.println("write hit at : "+index);
+				if(typeWrite(value,type,i,index))
+				{
 					return true;
 				}
-				else if(type==TYPE_16){
-					int j = 0 ;
-					for (j=1;j>=0;j--){
-						byte tmp = (byte)(value&0xff);
-						block[index][i][wordoffset*4+byteoffset+j] = tmp;
-						value = value>>8;
-					}
-					return true;
+				else{
+					return false;
 				}
-				else if(type==TYPE_32){
-					int j = 0 ;
-					for (j=3;j>=0;j--){
-						byte tmp = (byte)(value&0xff);
-						block[index][i][wordoffset*4+byteoffset+j] = tmp;
-						value = value>>8;
-					}
-					return true;
-				}
-				
+			}
+			if(valid[index][i]==false){
+					flag=true;
+					vaccum = i;
 			}
 		}
-		
+		System.out.println("write miss at : "+index);
 		///miss
+		if(flag){//do not need lru
+			int taddr=getBlockAddr(index,tag[index][(short)vaccum]);
+			lineFill((short)index,(short)vaccum,taddr,tags);
+			//写cache
+			//不需要写到mem中
+			System.out.println("write miss and load mem ,write cache");
+				if(typeWrite(value,type,vaccum,index)){
+					return true;
+				}
+				else{
+					return false;
+				}
+				
+			//end write
+		}
 		
-		
-		return false;
+		else{// lru needed ，写入mem
+			System.out.println("write LRU");
+			int choice=0;
+			if(tlru[index]==0)
+			{
+				choice=1;
+			}
+			else{
+				choice=0;
+			}
+			//写入Mem
+			int taddr=getBlockAddr(index,tag[index][(short)choice]);
+			writeMem(taddr,block[index][(short)choice]);
+			lineFill(index,(short)choice,taddr,tags);
+			if(typeWrite(value,type,choice,index))
+			{
+				return true;
+			}
+			else{
+				return false;
+			}
+			
+		}
 	}
+	/*
+	 * @param
+	 * value:write value
+	 * type:8bit,16bit,32bit
+	 * i:0 or 1
+	 */
+	public Boolean typeWrite(int value,short type,int i,int cindex){
+		
+		
+			lru[cindex][i]++;
+			tlru[cindex]=(byte)i;
+			if(type==TYPE_8){
+				block[cindex][i][wordoffset*4+byteoffset]=(byte)(value&0xff);
+				return true;
+			}
+			else if(type==TYPE_16){
+				int j = 0 ;
+				for (j=0;j<2;j++){
+					byte tmp = (byte)(value&0xff);
+					block[cindex][i][wordoffset*4+byteoffset+j] = tmp;
+					value = value>>8;
+				}
+				return true;
+			}
+			else if(type==TYPE_32){
+				int j = 0 ;
+				for (j=0;j<4;j++){
+					byte tmp = (byte)(value&0xff);
+					block[cindex][i][wordoffset*4+byteoffset+j] = tmp;
+					value = value>>8;
+				}
+				return true;
+			}
+			return false;
+	}
+
 	/*
 	 * print cache status information
 	 */
-	public void Print_Cache(){
+	public void printCache(short cindex){
+		System.out.println("Cache Status for Index "+cindex+" :");
+		System.out.println("valid	"+"tag	"+"Intern	"+"Block");
+		for (int i = 0 ;i < CACHE_INTERN ; i ++ ){
+			
+			System.out.print(valid[cindex][i].toString()+"	"+tag[cindex][i]+"	"+i+"	");
+			for (int j = 0 ;j < BLOCK_SIZE;j++){
+				System.out.print(block[cindex][i][j]+" ");
+			}
+			System.out.print("\r\n");
+			
+		}
 		
 		
 	}
+	
 	/*
 	 * Address Resolve
 	 */
-	public void addressResolve(int addr){
-		if (addr<0){
+	public void addressResolve(int taddr){
+		if (taddr<0 || taddr >MEM_SIZE*BLOCK_SIZE*8){
 			System.out.println("Bad address");
 			return;
 		}
 		//地址不超过内存大小
-		addr = addr&(MEM_SIZE*BLOCK_SIZE*8);
-		addr = addr&0x7fffffff;
-		byteoffset = (short) (addr&0x03);
-		wordoffset = (short)(addr&0x1c);
-		index=(short)(addr&0xfe0);
-		tags = addr&0xfffff000;
+		System.out.println("The address Resolve outcome is: "+taddr);
+		addr = taddr;
+		//taddr = addr&(MEM_SIZE*BLOCK_SIZE*8);
+		taddr = taddr&0x7fffffff;
+		byteoffset = (short) (taddr&0x03);
+		taddr = taddr>>2;
+		
+		wordoffset = (short)(taddr&0x07);
+		taddr = taddr>>3;
+		index = (short)(taddr&0x7f);
+		taddr = taddr >> 7;
+		tags = taddr&0x000fffff;
+		//wordoffset = (short)(taddr&0x1c);
+		//index=(short)(taddr&0xfe0);
+		//tags = taddr&0xfffff000;
+		
+		System.out.println("index: "+index+" tags: "+tags+" wordoffset: "+wordoffset+" byteoffset: "+byteoffset);
 		return;
-	}
+	} 
 }
