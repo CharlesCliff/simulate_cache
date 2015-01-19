@@ -11,6 +11,8 @@ public class Cache {
 	public static final short TYPE_16 = 16;
 	public static final short TYPE_32 = 32;
 	public static final short MEM_SIZE = 10240;
+	public static final short SIGN_EXT = 1; 
+	public static final short UNSIGN_EXT = 0; 
 	/*
 	 * private variables definition
 	 */
@@ -60,6 +62,7 @@ public class Cache {
 		
 		//taddr = taddr&(MEM_SIZE*BLOCK_SIZE*8);
 		int memindex=taddr>>5;
+			System.out.println("load mem at block "+memindex);
 		byte result[] = new byte[BLOCK_SIZE];
 		for(int i = 0 ; i < BLOCK_SIZE ; i ++){
 			result[i]=mem[memindex][i];
@@ -82,7 +85,7 @@ public class Cache {
 		return true;
 	}
 	public void printMem(int mindex){
-		if (mindex > MEM_SIZE*BLOCK_SIZE){
+		if (mindex > MEM_SIZE*BLOCK_SIZE || mindex < 0){
 			System.out.println("index is too big for memory");
 			return;
 		}
@@ -90,8 +93,12 @@ public class Cache {
 		for (int i = 0 ;i < BLOCK_SIZE ; i ++){
 			System.out.print(mem[mindex][i]+" ");
 		}
-		System.out.println("end fof mem status-------------------------------------+++=======");
+		System.out.println("\r\n end of mem status====================================");
 		return;
+	}
+	public void printMemByAddr(int address){
+		printMem(address>>5);
+		
 	}
 	/*
 	 * invalid entire cache
@@ -99,7 +106,7 @@ public class Cache {
 	 */
 	public int getBlockAddr(short cindex,int ctag){
 		int taddr = (ctag<<12)+(((int)cindex)<<5);
-		System.out.println("taddress is : "+taddr);
+//		System.out.println("taddress is : "+taddr);
 		return taddr;
 	}
 	public Boolean Invalid_Entire_Cache(){
@@ -107,6 +114,7 @@ public class Cache {
 			for (int j = 0; j <CACHE_INTERN;j++)
 			valid[i][j]= false;
 		}
+		System.out.println("Cache invalid entirely");
 		return true;
 	}
 	/*
@@ -115,10 +123,12 @@ public class Cache {
 	 */
 	public void lineFill(short cindex, short cintern,int taddr,int ctag){
 		//@TODO
+		
 		block[cindex][cintern] = loadMem(taddr);
 		//标记
 		valid[cindex][cintern] = true;
 		tag[cindex][cintern] = ctag;
+		System.out.println("linefill at block "+cindex);
 		return;
 	}
 	/*
@@ -136,33 +146,10 @@ public class Cache {
 				lru[index][i]+=1;
 				tlru[index]=(byte)i;
 				System.out.println(" read hit at : "+index );
-				if(type==TYPE_8){
-					rtvalue = block[index][i][wordoffset*4+byteoffset];
-					return (int)(rtvalue);
-				}
-				else if(type==TYPE_16){
-					int j = 0 ;
-					rtvalue = 0;
-					for (j=1;j>=0;j--){
-						short tmp = 0;
-						tmp= block[index][i][wordoffset*4+byteoffset+j];
-						rtvalue=(rtvalue<<8)+(int)tmp;
-					}
-					return rtvalue;
-				}
-				else if(type==TYPE_32){
-					int j = 0 ;
-					rtvalue = 0;
-					for (j=3;j>=0;j--){
-						short tmp = 0;
-						tmp= block[index][i][wordoffset*4+byteoffset+j];
-						rtvalue=(rtvalue<<8)+(int)tmp;
-					}
-					return rtvalue;
-				}
+				rtvalue = typeRead(index,type,i);
 				//rtvalue = block[index][i][wordoffset*4+byteoffset];
 				
-				return -1;
+				return rtvalue;
 			}
 			/*
 			 * flag if need to  LRU
@@ -177,11 +164,14 @@ public class Cache {
 		 * miss
 		 * LRU 
 		 */
-		System.out.println("read miss at: "+index);
+		
 		if(flag){// do not need to lru
+			System.out.println("read miss at: "+index);
 			lineFill((short)index,(short)vaccum,addr,tags);
 			valid[index][vaccum]=true;
 			tag[index][vaccum] = tags;
+			rtvalue = typeRead(index,type,vaccum);
+			
 		}
 		else{// LRU needed
 			System.out.println("read LRU");
@@ -191,8 +181,6 @@ public class Cache {
 				if(lru[index][i]<max_time){
 					choice = i;
 				}
-				
-				
 			}
 			/*
 			 * tmp lru for 2 
@@ -205,12 +193,86 @@ public class Cache {
 				writeMem(taddr,block[index][(short)choice]);
 				lineFill(index,(short)choice,taddr,tags);
 				tag[index][choice] = tags;
+				rtvalue = typeRead(index,type,choice);
 			}
 		}
-		System.out.println("miss");
-		return 0;
+		
+		return rtvalue;
 	}
-	
+	/**********************************
+	 * type read 
+	 *********************************/
+	public int typeRead(short cindex,short type,int intern){
+		lru[cindex][intern]++;
+		tlru[cindex]=(byte)intern;
+		int rtvalue = 0;
+		if(type==TYPE_8){
+			rtvalue = (int)(block[cindex][intern][wordoffset*4+byteoffset]&0x0ff);
+			return (int)(rtvalue);
+		}
+		else if(type==TYPE_16){
+			int j = 0 ;
+			rtvalue = 0;
+			for (j=1;j>=0;j--){
+				short tmp = 0;
+				tmp= block[cindex][intern][wordoffset*4+byteoffset+j];
+				rtvalue=(rtvalue<<8)+(((int)tmp)&0xff);
+			}
+			return rtvalue&0x0000ffff;
+		}
+		else if(type==TYPE_32){
+			int j = 0 ;
+			rtvalue = 0;
+			for (j=3;j>=0;j--){
+				short tmp = 0;
+				tmp= block[cindex][intern][wordoffset*4+byteoffset+j];
+				rtvalue=(rtvalue<<8)+(((int)tmp)&0xff);
+			}
+			return rtvalue;
+		}
+		return rtvalue;
+	}
+	public int  extendRead(short ext,int value,short type){
+		int rtvalue = 0;
+		rtvalue = value ;
+		if (ext==SIGN_EXT){
+			
+			if (type==TYPE_8){
+				int topbit =((value>>7)&0x01);
+				if (0==topbit){
+					rtvalue = value&0x0ff;
+				}
+				else if(1==topbit){
+					rtvalue=value&0x0ff;
+					rtvalue+=0xffffff00;
+				}
+			}
+			else if(type==TYPE_16){
+				int topbit =((value>>15)&0x01);
+				if (0==topbit){   
+					rtvalue = value&0x0ffff;
+				}
+				else if(1==topbit){
+					rtvalue=value&0x0ffff;
+					rtvalue+=0xffff0000;
+				}
+			}
+		}
+		else if(ext==UNSIGN_EXT){
+			if (type==TYPE_8){
+				
+					rtvalue = value&0x0ff;
+				
+			}
+			else if(type==TYPE_16){
+				
+					rtvalue = value&0x0ffff;
+				
+			}
+		}
+		
+		return rtvalue;
+	}
 	/*write cache
 	 * 
 	 */
@@ -234,14 +296,15 @@ public class Cache {
 					vaccum = i;
 			}
 		}
-		System.out.println("write miss at : "+index);
+		
 		///miss
 		if(flag){//do not need lru
+			System.out.println("write miss at  block "+index+" withoutLRU");
 			int taddr=getBlockAddr(index,tag[index][(short)vaccum]);
 			lineFill((short)index,(short)vaccum,taddr,tags);
 			//写cache
 			//不需要写到mem中
-			System.out.println("write miss and load mem ,write cache");
+//			System.out.println("write miss and load mem ,write cache");
 				if(typeWrite(value,type,vaccum,index)){
 					return true;
 				}
@@ -253,6 +316,7 @@ public class Cache {
 		}
 		
 		else{// lru needed ，写入mem
+			System.out.println("write miss at block "+index+" with LRU");
 			System.out.println("write LRU");
 			int choice=0;
 			if(tlru[index]==0)
@@ -288,12 +352,20 @@ public class Cache {
 			lru[cindex][i]++;
 			tlru[cindex]=(byte)i;
 			if(type==TYPE_8){
-				block[cindex][i][wordoffset*4+byteoffset]=(byte)(value&0xff);
+				value = value&0x0ff;
+				for (int j=0;j<4;j++){
+					byte tmp = (byte)(value&0xff);
+					block[cindex][i][wordoffset*4+byteoffset+j] = tmp;
+					value = value>>8;
+				}
 				return true;
+//				block[cindex][i][wordoffset*4+byteoffset]=(byte)(value&0xff);
+//				return true;
 			}
 			else if(type==TYPE_16){
 				int j = 0 ;
-				for (j=0;j<2;j++){
+				value = value&0x0ffff;
+				for (j=0;j<4;j++){
 					byte tmp = (byte)(value&0xff);
 					block[cindex][i][wordoffset*4+byteoffset+j] = tmp;
 					value = value>>8;
@@ -311,7 +383,7 @@ public class Cache {
 			}
 			return false;
 	}
-
+	
 	/*
 	 * print cache status information
 	 */
@@ -324,13 +396,13 @@ public class Cache {
 			for (int j = 0 ;j < BLOCK_SIZE;j++){
 				System.out.print(block[cindex][i][j]+" ");
 			}
-			System.out.print("\r\n");
-			
+			System.out.print("\r\n");	
 		}
-		
-		
 	}
-	
+	public void printCacheByAddr(int address){
+		addressResolve(address);
+		printCache(index);
+	}
 	/*
 	 * Address Resolve
 	 */
